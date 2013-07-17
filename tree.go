@@ -36,6 +36,7 @@ import (
 
 type Node struct {
 	edges    map[string]*Node // the various path elements leading out of this node.
+	prefix   map[string]*Node // the various path prefixes leading out of this node.
 	wildcard *Node            // if set, this node had a wildcard as its path element.
 	leaf     *Leaf            // if set, this is a terminal node for this leaf.
 	star     *Leaf            // if set, this path ends in a star.
@@ -50,7 +51,7 @@ type Leaf struct {
 
 // New returns a new path tree.
 func New() *Node {
-	return &Node{edges: make(map[string]*Node)}
+	return &Node{edges: make(map[string]*Node), prefix: make(map[string]*Node)}
 }
 
 // Add a path and its associated value to the tree.
@@ -100,6 +101,17 @@ func (n *Node) add(order int, elements, wildcards []string, val interface{}) err
 		return nil
 	}
 
+	// Handle prefixes
+	if pos := strings.LastIndex(el, ":"); pos != -1 {
+		e, ok := n.prefix[el[:pos]]
+		if !ok {
+			e = New()
+			n.prefix[el[:pos]] = e
+		}
+
+		return e.add(order, elements, append(wildcards, el[pos+1:]), val)
+	}
+
 	// It's a normal path element.
 	e, ok := n.edges[el]
 	if !ok {
@@ -136,6 +148,14 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 	el, elements = elements[0], elements[1:]
 	if nextNode, ok := n.edges[el]; ok {
 		leaf, expansions = nextNode.find(elements, exp)
+	}
+
+	// Handle prefixes
+	for key, nextNode := range n.prefix {
+		if strings.HasPrefix(el, key) {
+			leaf, expansions = nextNode.find(elements, append(exp, el[len(key):]))
+			break
+		}
 	}
 
 	// Handle colon

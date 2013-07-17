@@ -9,17 +9,27 @@ import (
 func TestColon(t *testing.T) {
 	n := New()
 
-	n.Add("/:first/:second/", 1)
-	n.Add("/:first", 2)
-	n.Add("/", 3)
+	n.Add("/P:first/U:second", 1)
+	n.Add("/N:first/:second", 2)
+	n.Add("/P:first", 3)
+	n.Add("/:first/:second/", 4)
+	n.Add("/:first", 5)
+	n.Add("/", 6)
 
-	found(t, n, "/", nil, 3)
-	found(t, n, "/a", []string{"a"}, 2)
-	found(t, n, "/a/", []string{"a"}, 2)
-	found(t, n, "/a/b", []string{"a", "b"}, 1)
-	found(t, n, "/a/b/", []string{"a", "b"}, 1)
+	found(t, n, "/", nil, 6)
+	found(t, n, "/a", []string{"a"}, 5)
+	found(t, n, "/a/", []string{"a"}, 5)
+	found(t, n, "/a/b", []string{"a", "b"}, 4)
+	found(t, n, "/a/b/", []string{"a", "b"}, 4)
+	found(t, n, "/Pa/Ub/", []string{"a", "b"}, 1)
+	found(t, n, "/Pa/b/", []string{"Pa", "b"}, 4)
+	found(t, n, "/Na/Ub/", []string{"a", "Ub"}, 2)
+	found(t, n, "/Na/b/", []string{"a", "b"}, 2)
+	found(t, n, "/Pa", []string{"a"}, 3)
+	found(t, n, "/Na", []string{"Na"}, 5)
 
 	notfound(t, n, "/a/b/c")
+	notfound(t, n, "/Pa/Ub/c")
 }
 
 func TestStar(t *testing.T) {
@@ -52,6 +62,7 @@ func TestMixedTree(t *testing.T) {
 	n.Add("/:id/to/nowhere", 3)
 	n.Add("/:a/:b", 4)
 	n.Add("/not/found", 5)
+	n.Add("/is:id/found/now", 6)
 
 	found(t, n, "/", nil, 0)
 	found(t, n, "/path/to/nowhere", nil, 1)
@@ -61,6 +72,9 @@ func TestMixedTree(t *testing.T) {
 	found(t, n, "/path/to/", []string{"path", "to"}, 4)
 	found(t, n, "/path/to", []string{"path", "to"}, 4)
 	found(t, n, "/not/found", []string{"not", "found"}, 4)
+	found(t, n, "/ishere/found/now", []string{"here"}, 6)
+	found(t, n, "/is/found/now", []string{""}, 6)
+	found(t, n, "//now", []string{"", "now"}, 4)
 	notfound(t, n, "/path/to/somewhere")
 	notfound(t, n, "/path/to/nowhere/else")
 	notfound(t, n, "/path")
