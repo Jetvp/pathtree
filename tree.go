@@ -35,35 +35,40 @@ import (
 )
 
 type Node struct {
-	edges     map[string]*Node    // the various path elements leading out of this node.
-	wildcards map[string]Wildcard // if set, this slice holds nodes for paths with wildcard elements.
-	leaf      *Leaf               // if set, this is a terminal node for this leaf.
-	star      *Leaf               // if set, this path ends in a star.
-	leafs     int                 // counter for # leafs in the tree
+	edges  map[string]Edge // the various path elements leading out of this node with wildcard elements.
+	leaf   *Leaf           // if set, this is a terminal node for this leaf.
+	star   *Leaf           // if set, this path ends in a star.
+	leafs  int             // counter for # leafs in the tree
+	parent *Edge           // two way traversing
 }
 
 type Leaf struct {
 	Value     interface{} // the value associated with this node
 	Wildcards []string    // the wildcard names, in order they appear in the path
 	order     int         // the order this leaf was added
+	parent    *Node       // two way traversing
+	slashend  bool        // if the path ends with a slash
 }
 
-type Wildcard struct {
-	node     *Node    // node for this wildcard element
-	padding  []string // padding elements between each var
-	wildend  bool     // if it ends with a wildcard
-	minorder int      // minimum order value in this path
+type Edge struct {
+	node      *Node    // node for this wildcard element
+	padding   []string // padding elements between each var
+	wildcards []string // wildcard elements being the vars
+	wildend   bool     // if it ends with a wildcard
+	minorder  int      // minimum order value in this path
+	parent    *Node    // two way traversing
 }
 
 // New returns a new path tree.
 func New() *Node {
-	return &Node{edges: make(map[string]*Node), wildcards: make(map[string]Wildcard)}
+	return &Node{edges: make(map[string]Edge)}
 }
 
 // Adds a new wildcard element to the node and returns the node
-func (n *Node) addWildcard(padding []string, representation string, wildend bool, order int) *Node {
-	element := Wildcard{node: New(), padding: padding, wildend: wildend, minorder: order}
-	n.wildcards[representation] = element
+func (n *Node) addEdge(padding []string, wildcards []string, representation string, wildend bool, order int) *Node {
+	element := Edge{node: New(), padding: padding, wildcards: wildcards, wildend: wildend, minorder: order, parent: n}
+	element.node.parent = &element
+	n.edges[representation] = element
 	return element.node
 }
 
@@ -71,25 +76,29 @@ func (n *Node) addWildcard(padding []string, representation string, wildend bool
 //   - key must begin with "/"
 //   - key must not duplicate any existing key.
 // Returns an error if those conditions do not hold.
-func (n *Node) Add(key string, val interface{}) error {
+func (n *Node) Add(key string, val interface{}) (leaf *Leaf, err error) {
 	if key[0] != '/' {
-		return errors.New("Path must begin with /")
+		return nil, errors.New("Path must begin with /")
 	}
 	n.leafs++
-	return n.add(n.leafs, splitPath(key), nil, val)
+	elements, slashend := splitPath(key)
+	return n.add(n.leafs, elements, nil, slashend, val)
 }
 
-func (n *Node) add(order int, elements, wildcards []string, val interface{}) error {
+func (n *Node) add(order int, elements, wildcards []string, slashend bool, val interface{}) (leaf *Leaf, err error) {
+	// Create leaf at the end
 	if len(elements) == 0 {
 		if n.leaf != nil {
-			return errors.New("duplicate path")
+			return nil, errors.New("duplicate path")
 		}
 		n.leaf = &Leaf{
 			order:     order,
 			Value:     val,
 			Wildcards: wildcards,
+			parent:    n,
+			slashend:  slashend,
 		}
-		return nil
+		return n.leaf, nil
 	}
 
 	var el string
@@ -98,65 +107,52 @@ func (n *Node) add(order int, elements, wildcards []string, val interface{}) err
 	// Handle stars
 	if len(el) > 0 && el[0] == '*' {
 		if n.star != nil {
-			return errors.New("duplicate path")
+			return nil, errors.New("duplicate path")
 		}
 		n.star = &Leaf{
 			order:     order,
 			Value:     val,
 			Wildcards: append(wildcards, el[1:]),
+			parent:    n,
+			slashend:  slashend,
 		}
-		return nil
+		return n.star, nil
 	}
 
 	// Handle wildcards
-	if pos := strings.LastIndex(el, ":"); pos != -1 {
-		// Remove any final closing :
-		if el[len(el)-1] == ':' {
-			el = el[:len(el)-1]
-		}
-		parts := strings.Split(el, ":")
-		paddings := make([]string, len(parts)/2+len(parts)%2)
-		variables := make([]string, len(parts)/2)
+	// remove any ending wildcard charicter
+	if (len(el) > 0) && (el[len(el)-1] == ':') {
+		el = el[:len(el)-1]
+	}
+	parts := strings.Split(el, ":")
+	paddings := make([]string, len(parts)/2+len(parts)%2)
+	variables := make([]string, len(parts)/2)
 
-		// Split appart padding and variables (padding first even if empty)
-		for key, value := range parts {
-			if key%2 == 0 {
-				paddings[key/2] = value
-			} else {
-				variables[key/2] = value
-			}
-		}
-
-		// Create string representation for map
-		wildend := len(paddings) == len(variables)
-		representation := strings.Join(paddings, ":")
-		if wildend {
-			representation = representation + ":"
-		}
-
-		// Test if map contains representation else create it
-		item, ok := n.wildcards[representation]
-		var node *Node
-		if ok {
-			node = item.node
-			if item.minorder > order {
-				item.minorder = order
-			}
+	// Split appart padding and variables (padding first even if empty)
+	for key, value := range parts {
+		if key%2 == 0 {
+			paddings[key/2] = value
 		} else {
-			node = n.addWildcard(paddings, representation, wildend, order)
+			variables[key/2] = value
 		}
-
-		return node.add(order, elements, append(wildcards, variables...), val)
 	}
 
-	// It's a normal path element.
-	e, ok := n.edges[el]
-	if !ok {
-		e = New()
-		n.edges[el] = e
+	// Create string representation for map
+	wildend := len(paddings) == len(variables)
+
+	// Test if map contains representation else create it
+	item, ok := n.edges[el]
+	var node *Node
+	if ok {
+		node = item.node
+		if item.minorder > order {
+			item.minorder = order
+		}
+	} else {
+		node = n.addEdge(paddings, variables, el, wildend, order)
 	}
 
-	return e.add(order, elements, wildcards, val)
+	return node.add(order, elements, append(wildcards, variables...), slashend, val)
 }
 
 // Find a given path. Any wildcards traversed along the way are expanded and
@@ -166,7 +162,8 @@ func (n *Node) Find(key string) (leaf *Leaf, expansions []string) {
 		return nil, nil
 	}
 
-	return n.find(splitPath(key), nil)
+	elements, _ := splitPath(key)
+	return n.find(elements, nil)
 }
 
 func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
@@ -183,14 +180,9 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 	// Peel off the next element and look up the associated edge.
 	var el string
 	el, elements = elements[0], elements[1:]
-	if nextNode, ok := n.edges[el]; ok {
-		if testleaf, testexpansions := nextNode.find(elements, exp); testleaf != nil {
-			leaf, expansions = testleaf, testexpansions
-		}
-	}
 
 	// Handle wildards
-	for _, value := range n.wildcards {
+	for _, value := range n.edges {
 		// Only check if tree contrains lower order item
 		if leaf != nil && leaf.order < value.minorder {
 			continue
@@ -200,7 +192,7 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 		variables := make([]string, 0, 0)
 		input := el
 
-		// Check all padding elements are present
+		// Check all padding elements are present and exit at first failure
 		for count, pad := range value.padding {
 			pos := strings.Index(input, pad)
 
@@ -240,13 +232,58 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 	return
 }
 
-func splitPath(key string) []string {
+// Reverse a given leaf into a path traversing up the tree. Any wildcards along
+// the way are replaced using the variable map and unused elements are returned.
+// err is nil on success, returns an array of missing wildcard elements not found
+// in the variable map or an empty array if leaf is invalid.
+func (n *Node) Reverse(leaf *Leaf, variables map[string]string) (path string, unused map[string]string, err []string) {
+	if leaf == nil || leaf.parent == nil {
+		return "", variables, make([]string, 0, 0)
+	}
+
+	return leaf.parent.reverse("", variables, nil, leaf.slashend)
+}
+
+func (n *Node) reverse(exp string, variables map[string]string, missed []string, slashend bool) (path string, unused map[string]string, err []string) {
+	// Return if we have reached the end of a tree
+	if n.parent == nil {
+		if slashend {
+			exp += "/"
+		}
+		return exp, variables, missed
+	}
+
+	// Generate edge path from padding and variables
+	edge := n.parent
+	var output string
+	for key, value := range edge.wildcards {
+		item, ok := variables[value]
+		if !ok {
+			missed = append(missed, value)
+		}
+		output = output + edge.padding[key] + item
+		delete(variables, value)
+	}
+
+	// Generate total output and add any final padding
+	if edge.wildend {
+		exp = "/" + output + exp
+	} else {
+		exp = "/" + output + edge.padding[len(edge.padding)-1] + exp
+	}
+
+	return edge.parent.reverse(exp, variables, missed, slashend)
+}
+
+func splitPath(key string) (parts []string, slashend bool) {
 	elements := strings.Split(key, "/")
+	slashend = false
 	if elements[0] == "" {
 		elements = elements[1:]
 	}
 	if elements[len(elements)-1] == "" {
 		elements = elements[:len(elements)-1]
+		slashend = true
 	}
-	return elements
+	return elements, slashend
 }

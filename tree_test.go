@@ -93,6 +93,46 @@ func TestMixedTree(t *testing.T) {
 	notfound(t, n, "/path//to/nowhere")
 }
 
+func TestReverse(t *testing.T) {
+	n := New()
+
+	l1, _ := n.Add("/P:first:/U:second/", 1)
+	l2, _ := n.Add("/Archive_:first:_all", 2)
+	l3, _ := n.Add("/Archive_:first:_:year:", 3)
+	l4, _ := n.Add("/User_:first://:second:.:third:", 4)
+	l5, _ := n.Add("/", 5)
+
+	if l1.parent != nil {
+		reverse(t, n, l1, map[string]string{"first": "a"}, "/Pa/U/", map[string]string{}, []string{"second"})
+	} else {
+		t.Errorf("Error generating reverse test leaf 1")
+	}
+
+	if l2.parent != nil {
+		reverse(t, n, l2, map[string]string{"first": "March", "year": "2013"}, "/Archive_March_all", map[string]string{"year": "2013"}, nil)
+	} else {
+		t.Errorf("Error generating reverse test leaf 2")
+	}
+
+	if l3.parent != nil {
+		reverse(t, n, l3, map[string]string{"first": "March", "year": "2013"}, "/Archive_March_2013", map[string]string{}, nil)
+	} else {
+		t.Errorf("Error generating reverse test leaf 3")
+	}
+
+	if l4.parent != nil {
+		reverse(t, n, l4, map[string]string{"first": "Freddy", "second": "index", "third": "html", "fourth": "arg=build"}, "/User_Freddy//index.html", map[string]string{"fourth": "arg=build"}, nil)
+	} else {
+		t.Errorf("Error generating reverse test leaf 4")
+	}
+
+	if l5.parent != nil {
+		reverse(t, n, l5, map[string]string{}, "/", map[string]string{}, nil)
+	} else {
+		t.Errorf("Error generating reverse test leaf 5")
+	}
+}
+
 func BenchmarkTree100(b *testing.B) {
 	n := New()
 	n.Add("/", "root")
@@ -172,5 +212,18 @@ func found(t *testing.T, n *Node, p string, expectedExpansions []string, val int
 	}
 	if leaf.Value != val {
 		t.Errorf("%s: Value (actual) %v != %v (expected)", p, leaf.Value, val)
+	}
+}
+
+func reverse(t *testing.T, n *Node, l *Leaf, vars map[string]string, path string, unused map[string]string, missing []string) {
+	r_path, r_unused, r_missing := n.Reverse(l, vars)
+	if r_path != path {
+		t.Errorf("%s: Path (actual) %v != %v (expected)", l.Value, r_path, path)
+	}
+	if !reflect.DeepEqual(r_unused, unused) {
+		t.Errorf("%s: Unused expansions (actual) %v != %v (expected)", l.Value, r_unused, unused)
+	}
+	if !reflect.DeepEqual(r_missing, missing) {
+		t.Errorf("%s: Missing expansions (actual) %v != %v (expected)", l.Value, r_missing, missing)
 	}
 }
