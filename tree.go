@@ -202,6 +202,12 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 	var el string
 	el, elements = elements[0], elements[1:]
 
+	// Handle star
+	if n.star != nil && (leaf == nil || leaf.order > n.star.order) {
+		leaf = n.star
+		expansions = append(exp, starExpansion)
+	}
+
 	// Handle wildards
 	for _, value := range n.edges {
 		// Only check if tree contrains lower order item
@@ -260,12 +266,6 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 				leaf, expansions = testleaf, testexpansions
 			}
 		}
-	}
-
-	// Handle star
-	if n.star != nil && (leaf == nil || leaf.order > n.star.order) {
-		leaf = n.star
-		expansions = append(exp, starExpansion)
 	}
 
 	return

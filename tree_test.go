@@ -102,7 +102,7 @@ func TestReverse(t *testing.T) {
 	n := New()
 
 	l1, _ := n.Add("/P:first;/U:second/", 1)
-	l2, _ := n.Add("/Archive_:first;_all", 2)
+	l2, _ := n.Add("/Archive_|History_:first;_all", 2)
 	l3, _ := n.Add("/Archive_:first;_:[2,4]year;", 3)
 	l4, _ := n.Add("/User_:first;//:second;.:third;", 4)
 	l5, _ := n.Add("/", 5)
