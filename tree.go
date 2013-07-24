@@ -8,6 +8,7 @@
 //   - Path elements containing multiple ':[min,max]varible;' will be interpreted as wildcards.
 //   - Path elements beginning '*' will be interpreted as an ongoing wildcard.
 //   - Trailing slashes are inconsequential and included on reverse.
+//   - Paths can have multiple options for padding values between wildcards split with "|"
 //
 // Wildcards
 //
@@ -62,7 +63,7 @@ type Leaf struct {
 
 type Edge struct {
 	node      *Node      // node for this wildcard element
-	padding   []string   // padding elements between each var
+	padding   [][]string // possible padding elements between each var
 	wildcards []Wildcard // wildcard elements being the vars
 	wildend   bool       // if it ends with a wildcard
 	minorder  int        // minimum order value in this path
@@ -81,7 +82,7 @@ func New() *Node {
 }
 
 // Adds a new wildcard element to the node and returns the node
-func (n *Node) addEdge(padding []string, wildcards []Wildcard, representation string, wildend bool, order int) *Node {
+func (n *Node) addEdge(padding [][]string, wildcards []Wildcard, representation string, wildend bool, order int) *Node {
 	element := Edge{node: New(), padding: padding, wildcards: wildcards, wildend: wildend, minorder: order, parent: n}
 	element.node.parent = &element
 	n.edges[representation] = element
@@ -142,14 +143,14 @@ func (n *Node) add(order int, elements []string, wildcards []Wildcard, slashend 
 	}
 	parts := splitInput(el)
 	variables := make([]Wildcard, len(parts)/2)
-	paddings := make([]string, len(variables)+len(parts)%2)
+	paddings := make([][]string, len(variables)+len(parts)%2)
 
 	// Split appart padding and variables (padding first even if empty)
 	in := false
 	key := 0
 	for _, value := range parts {
 		if in == false {
-			paddings[key] = value
+			paddings[key] = splitPad(value)
 		} else {
 			variables[key] = decodeWildcard(value)
 			key++
@@ -208,29 +209,37 @@ func (n *Node) find(elements, exp []string) (leaf *Leaf, expansions []string) {
 			continue
 		}
 
-		found := bool(true)
+		found := false
 		variables := make([]string, 0, 0)
 		input := el
 
 		// Check all padding elements are present and exit at first failure
-		for count, pad := range value.padding {
-			pos := strings.Index(input, pad)
+		for count, pads := range value.padding {
+			for _, pad := range pads {
+				pos := strings.Index(input, pad)
 
-			if (pos == -1) || (count == 0 && pos > 0) {
-				found = false
+				if (pos == -1) || (count == 0 && pos > 0) {
+					found = false
+					continue
+				}
+
+				if count != 0 {
+					item := &value.wildcards[count-1]
+					if (item.Min != 0 && pos < item.Min) || (item.Max != 0 && pos > item.Max) {
+						found = false
+						continue
+					} else {
+						variables = append(variables, input[:pos])
+					}
+				}
+				input = input[pos+len(pad):]
+				found = true
 				break
 			}
 
-			if count != 0 {
-				item := &value.wildcards[count-1]
-				if (item.Min != 0 && pos < item.Min) || (item.Max != 0 && pos > item.Max) {
-					found = false
-					continue
-				} else {
-					variables = append(variables, input[:pos])
-				}
+			if !found {
+				break
 			}
-			input = input[pos+len(pad):]
 		}
 
 		if !found {
@@ -294,7 +303,7 @@ func (n *Node) reverse(exp string, variables map[string]string, missed []string,
 			missed = append(missed, "["+strconv.Itoa(value.Min)+","+strconv.Itoa(value.Max)+"]"+value.Name)
 		}
 
-		output = output + edge.padding[key] + item
+		output = output + edge.padding[key][0] + item
 
 		if ok {
 			delete(variables, value.Name)
@@ -305,7 +314,7 @@ func (n *Node) reverse(exp string, variables map[string]string, missed []string,
 	if edge.wildend {
 		exp = "/" + output + exp
 	} else {
-		exp = "/" + output + edge.padding[len(edge.padding)-1] + exp
+		exp = "/" + output + edge.padding[len(edge.padding)-1][0] + exp
 	}
 
 	return edge.parent.reverse(exp, variables, missed, slashend)
@@ -338,6 +347,25 @@ func splitInput(s string) []string {
 			a[na] = s[start:i]
 			na++
 			in = !in
+			start = i + 1
+		}
+	}
+	a[na] = s[start:]
+	return a[0 : na+1]
+}
+
+func splitPad(s string) []string {
+	if s == "" {
+		return []string{s}
+	}
+	start := 0
+	n := strings.Count(s, "|") + 1
+	a := make([]string, n)
+	na := 0
+	for i := 0; i+1 <= len(s) && na+1 < n; i++ {
+		if s[i] == '|' {
+			a[na] = s[start:i]
+			na++
 			start = i + 1
 		}
 	}
