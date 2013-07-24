@@ -9,32 +9,34 @@ import (
 func TestColon(t *testing.T) {
 	n := New()
 
-	n.Add("/P:first:/U:second", 1)
-	n.Add("/N:first/:second", 2)
-	n.Add("/P:first", 3)
-	n.Add("/:first/:second:/", 4)
-	n.Add("/Archive_:first:_all", 5)
-	n.Add("/Archive_:first:_:year:", 6)
-	n.Add("/User_:first://:second:.:third:", 7)
-	n.Add("/:first:.:second", 8)
-	n.Add("/:first", 9)
-	n.Add("/", 10)
+	n.Add("/P:first;/U:[4,10]second", 1)
+	n.Add("/P:first;/U:[3]second", 2)
+	n.Add("/P:first;/U:second", 3)
+	n.Add("/N:first/:second", 4)
+	n.Add("/P:first", 5)
+	n.Add("/:first/:second;/", 6)
+	n.Add("/Archive_:first;_all", 7)
+	n.Add("/Archive_:first;_:year;", 8)
+	n.Add("/User_:first;//:second;.:third;", 9)
+	n.Add("/:first;.:second", 10)
+	n.Add("/:first", 11)
+	n.Add("/", 12)
 
-	found(t, n, "/", nil, 10)
-	found(t, n, "/a", []string{"a"}, 9)
-	found(t, n, "/a/", []string{"a"}, 9)
-	found(t, n, "/a/b", []string{"a", "b"}, 4)
-	found(t, n, "/a/b/", []string{"a", "b"}, 4)
-	found(t, n, "/Pa/Ub/", []string{"a", "b"}, 1)
-	found(t, n, "/Pa/b/", []string{"Pa", "b"}, 4)
-	found(t, n, "/Na/Ub/", []string{"a", "Ub"}, 2)
-	found(t, n, "/Na/b/", []string{"a", "b"}, 2)
-	found(t, n, "/Pa", []string{"a"}, 3)
-	found(t, n, "/Na", []string{"Na"}, 9)
-	found(t, n, "/Archive_March_all", []string{"March"}, 5)
-	found(t, n, "/Archive_March_2013", []string{"March", "2013"}, 6)
-	found(t, n, "/User_Freddy//20130502_0001.jpg", []string{"Freddy", "20130502_0001", "jpg"}, 7)
-	found(t, n, "/map.xml", []string{"map", "xml"}, 8)
+	found(t, n, "/", nil, 12)
+	found(t, n, "/a", []string{"a"}, 11)
+	found(t, n, "/a/", []string{"a"}, 11)
+	found(t, n, "/a/b", []string{"a", "b"}, 6)
+	found(t, n, "/a/b/", []string{"a", "b"}, 6)
+	found(t, n, "/Pa/Ub/", []string{"a", "b"}, 3)
+	found(t, n, "/Pa/b/", []string{"Pa", "b"}, 6)
+	found(t, n, "/Na/Ub/", []string{"a", "Ub"}, 4)
+	found(t, n, "/Na/b/", []string{"a", "b"}, 4)
+	found(t, n, "/Pa", []string{"a"}, 5)
+	found(t, n, "/Na", []string{"Na"}, 11)
+	found(t, n, "/Archive_March_all", []string{"March"}, 7)
+	found(t, n, "/Archive_March_2013", []string{"March", "2013"}, 8)
+	found(t, n, "/User_Freddy//20130502_0001.jpg", []string{"Freddy", "20130502_0001", "jpg"}, 9)
+	found(t, n, "/map.xml", []string{"map", "xml"}, 10)
 
 	notfound(t, n, "/a/b/c")
 	notfound(t, n, "/Pa/Ub/c")
@@ -70,7 +72,7 @@ func TestMixedTree(t *testing.T) {
 	n.Add("/:id/to/nowhere", 3)
 	n.Add("/:a/:b", 4)
 	n.Add("/not/found", 5)
-	n.Add("/is:id:really/found/now", 6)
+	n.Add("/is:id;really/found/now", 6)
 
 	found(t, n, "/", nil, 0)
 	found(t, n, "/path/to/nowhere", nil, 1)
@@ -96,14 +98,14 @@ func TestMixedTree(t *testing.T) {
 func TestReverse(t *testing.T) {
 	n := New()
 
-	l1, _ := n.Add("/P:first:/U:second/", 1)
-	l2, _ := n.Add("/Archive_:first:_all", 2)
-	l3, _ := n.Add("/Archive_:first:_:year:", 3)
-	l4, _ := n.Add("/User_:first://:second:.:third:", 4)
+	l1, _ := n.Add("/P:first;/U:second/", 1)
+	l2, _ := n.Add("/Archive_:first;_all", 2)
+	l3, _ := n.Add("/Archive_:first;_:[2,4]year;", 3)
+	l4, _ := n.Add("/User_:first;//:second;.:third;", 4)
 	l5, _ := n.Add("/", 5)
 
 	if l1.parent != nil {
-		reverse(t, n, l1, map[string]string{"first": "a"}, "/Pa/U/", map[string]string{}, []string{"second"})
+		reverse(t, n, l1, map[string]string{"first": "a"}, "/Pa/U/", map[string]string{}, []string{"[0,0]second"})
 	} else {
 		t.Errorf("Error generating reverse test leaf 1")
 	}
@@ -116,6 +118,8 @@ func TestReverse(t *testing.T) {
 
 	if l3.parent != nil {
 		reverse(t, n, l3, map[string]string{"first": "March", "year": "2013"}, "/Archive_March_2013", map[string]string{}, nil)
+		reverse(t, n, l3, map[string]string{"first": "March", "year": "1"}, "/Archive_March_", map[string]string{"year": "1"}, []string{"[2,4]year"})
+		reverse(t, n, l3, map[string]string{"first": "March", "year": "11023"}, "/Archive_March_", map[string]string{"year": "11023"}, []string{"[2,4]year"})
 	} else {
 		t.Errorf("Error generating reverse test leaf 3")
 	}
